@@ -144,6 +144,7 @@ final class ConversationTextSearch {
 		if ( empty( $matches ) ) {
 			$query->whereRaw( '1 = 0' );
 		} else {
+			// IDs, not a correlated EXISTS, which MariaDB can turn into a scan of every thread.
 			$query->whereIn( 'conversations.id', $matches );
 		}
 
