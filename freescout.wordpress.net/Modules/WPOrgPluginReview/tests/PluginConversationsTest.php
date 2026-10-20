@@ -14,7 +14,6 @@ use App\Mailbox;
 use App\Thread;
 use App\User;
 use Illuminate\Http\Request;
-use Modules\WPOrgPluginReview\Jobs\IndexPluginIds;
 use Modules\WPOrgPluginReview\Providers\WPOrgPluginReviewServiceProvider;
 use Modules\WPOrgPluginReview\Services\PluginConversations;
 use Modules\WPOrgPluginReview\Services\Review;
@@ -22,11 +21,9 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 use WordPressdotorg\FreeScout\Tests\TestCase;
 
 /**
- * Covers the plugin IDs of the index of review emails, filling them in for the rows indexed before them, and the
- * `reviewPluginId` parameter of the API's conversation list.
+ * Covers the plugin IDs in the index of review emails, and the `reviewPluginId` parameter of the API's conversation list.
  *
- * The API & Webhooks module is premium, so it isn't in the test environment: the filter is run on the query the module
- * would build, the way the module runs it.
+ * The API & Webhooks module isn't in the test environment, so the filter runs on the query it would build.
  */
 final class PluginConversationsTest extends TestCase {
 
@@ -71,61 +68,7 @@ final class PluginConversationsTest extends TestCase {
 	}
 
 	/**
-	 * The rows indexed before the plugin IDs get theirs; the ones that aren't review emails any more, or whose thread
-	 * is gone, leave the index; and doing it again changes nothing.
-	 *
-	 * @return void
-	 */
-	public function test_indexes_the_plugin_ids_of_rows_indexed_before_them(): void {
-		$review  = $this->review( 42 );
-		$other   = $this->review( 43 );
-		$changed = $this->review( 44 );
-		$kept    = $this->review( 45 );
-
-		// As the rows were before the column, with a thread changed and another deleted without their hooks.
-		\DB::table( Review::TABLE )->where( 'thread_id', '!=', $kept->id )->update( array( 'plugin_id' => null ) );
-		\DB::table( 'threads' )->where( 'id', $changed->id )->update( array( 'body' => '<p>Thanks for the update.</p>' ) );
-		\DB::table( 'threads' )->where( 'id', $other->id )->delete();
-
-		$this->assertNull( ( new IndexPluginIds() )->index_batch() );
-
-		$this->assertSame( 42, $this->plugin_id( $review ) );
-		$this->assertSame( 45, $this->plugin_id( $kept ) );
-		$this->assertFalse( \DB::table( Review::TABLE )->where( 'thread_id', $other->id )->exists() );
-		$this->assertFalse( \DB::table( Review::TABLE )->where( 'thread_id', $changed->id )->exists() );
-
-		\DB::table( Review::TABLE )->update( array( 'plugin_id' => null ) );
-		\Artisan::call(
-			'wporgpluginreview:index',
-			array(
-				'--plugin-ids' => true,
-				'--now'        => true,
-			)
-		);
-
-		$this->assertSame( array( 42, 45 ), \DB::table( Review::TABLE )->orderBy( 'plugin_id' )->pluck( 'plugin_id' )->map( 'intval' )->all() );
-	}
-
-	/**
-	 * A batch starts after the last row the previous one read, so rows it can't read don't stop the rest.
-	 *
-	 * @return void
-	 */
-	public function test_continues_after_the_rows_of_the_previous_batch(): void {
-		$first  = $this->review( 42 );
-		$second = $this->review( 43 );
-		\DB::table( Review::TABLE )->update( array( 'plugin_id' => null ) );
-
-		$after = (int) \DB::table( Review::TABLE )->where( 'thread_id', $first->id )->value( 'id' );
-		$this->assertNull( ( new IndexPluginIds( $after ) )->index_batch() );
-
-		$this->assertNull( \DB::table( Review::TABLE )->where( 'thread_id', $first->id )->value( 'plugin_id' ) );
-		$this->assertSame( 43, $this->plugin_id( $second ) );
-	}
-
-	/**
-	 * The parameter lists every conversation with a review email about the plugin, open or closed, and combines with
-	 * the module's other parameters.
+	 * Every conversation with a review email about the plugin is listed, open or closed, with the module's other filters.
 	 *
 	 * @return void
 	 */
@@ -143,7 +86,7 @@ final class PluginConversationsTest extends TestCase {
 	}
 
 	/**
-	 * A value that isn't a plugin ID is refused rather than ignored, which would list every conversation as the plugin's.
+	 * A value that isn't a plugin ID is refused rather than ignored.
 	 *
 	 * @return void
 	 */
@@ -195,12 +138,10 @@ final class PluginConversationsTest extends TestCase {
 	 * The plugin ID a thread is indexed with.
 	 *
 	 * @param Thread $thread Thread.
-	 * @return int|null
+	 * @return int
 	 */
-	private function plugin_id( Thread $thread ): ?int {
-		$plugin_id = \DB::table( Review::TABLE )->where( 'thread_id', $thread->id )->value( 'plugin_id' );
-
-		return null === $plugin_id ? null : (int) $plugin_id;
+	private function plugin_id( Thread $thread ): int {
+		return (int) \DB::table( Review::TABLE )->where( 'thread_id', $thread->id )->value( 'plugin_id' );
 	}
 
 	/**

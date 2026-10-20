@@ -99,7 +99,6 @@ final class WPOrgSiteServiceProvider extends ServiceProvider {
 			}
 		);
 
-		// The API & Webhooks module's conversation list, searched by the text of the threads too.
 		\Eventy::addFilter( 'api.conversations.query', array( ConversationTextSearch::class, 'filter' ), 20, 2 );
 
 		\Eventy::addFilter(

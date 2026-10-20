@@ -20,8 +20,7 @@ use WordPressdotorg\FreeScout\Tests\TestCase;
 /**
  * Covers the `body` parameter of the API's conversation list.
  *
- * The API & Webhooks module is premium, so it isn't in the test environment: the filter is run on the query
- * the module would build, the way the module runs it.
+ * The API & Webhooks module isn't in the test environment, so the filter runs on the query it would build.
  */
 final class ConversationTextSearchTest extends TestCase {
 
@@ -105,8 +104,7 @@ final class ConversationTextSearchTest extends TestCase {
 	}
 
 	/**
-	 * Without the parameter the list is left alone, and a search that can't be made is refused rather than
-	 * listing nothing, which would read as nothing matching.
+	 * Without the parameter the list is left alone; a search that can't be made is refused.
 	 *
 	 * @return void
 	 */
@@ -133,12 +131,13 @@ final class ConversationTextSearchTest extends TestCase {
 			$this->create_thread( $conversation, Thread::TYPE_CUSTOMER, 'Hello there ' . $i, null, '2026-10-01 10:00:00' );
 		}
 
-		\Eventy::addFilter( 'wporgsite.conversation_text_search.max_conversations', static fn(): int => 2 );
+		$max = static fn(): int => 2;
+		\Eventy::addFilter( 'wporgsite.conversation_text_search.max_conversations', $max );
 
 		try {
 			$this->assert_refused( 400, 'Hello' );
 		} finally {
-			\Eventy::removeAllFilters( 'wporgsite.conversation_text_search.max_conversations' );
+			\Eventy::removeFilter( 'wporgsite.conversation_text_search.max_conversations', $max );
 		}
 
 		$this->assertCount( 3, $this->search( 'Hello' ) );
@@ -157,14 +156,15 @@ final class ConversationTextSearchTest extends TestCase {
 		$this->create_thread( $conversation, Thread::TYPE_CUSTOMER, 'Hello again', null, '2026-10-02 10:00:00' );
 		$this->create_thread( $conversation, Thread::TYPE_MESSAGE, 'Hello, P0TDX123HGN', $agent, '2026-10-03 10:00:00' );
 
-		\Eventy::addFilter( 'wporgsite.conversation_text_search.max_threads', static fn(): int => 2 );
+		$max = static fn(): int => 2;
+		\Eventy::addFilter( 'wporgsite.conversation_text_search.max_threads', $max );
 
 		try {
 			$this->assert_refused( 400, 'Hello' );
 			$this->assertSame( array( $conversation->id ), $this->search( 'Hello', 'message' ) );
 			$this->assertSame( array( $conversation->id ), $this->search( 'Hello', null, array( ConversationTextSearch::SINCE_PARAMETER => '2026-10-02T00:00:00Z' ) ) );
 		} finally {
-			\Eventy::removeAllFilters( 'wporgsite.conversation_text_search.max_threads' );
+			\Eventy::removeFilter( 'wporgsite.conversation_text_search.max_threads', $max );
 		}
 	}
 

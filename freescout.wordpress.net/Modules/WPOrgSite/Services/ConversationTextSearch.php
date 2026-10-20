@@ -13,32 +13,10 @@ use App\Thread;
 use Carbon\Carbon;
 
 /**
- * Adds a `body` parameter to the API's conversation list: only conversations with an email, reply, or note
- * containing that text are listed, like HelpScout's `body:` search, which the plugins team's review tools
- * relied on. Three more parameters narrow which threads are read:
+ * Adds a `body` text search to the API & Webhooks module's conversation list, like HelpScout's.
  *
- * - `bodyThreadType`: comma-separated `customer`, `message`, `note`; all three when it's left out.
- * - `bodySince`, `bodyBefore`: only threads created since, or before, a date (ISO 8601, like `createdSince`).
- *
- * The API & Webhooks module lists conversations by sender, subject, tag, and dates, but not by what they say.
- * It goes through the module's `api.conversations.query` filter rather than a route of our own, so the module
- * keeps authenticating the key, limiting it to its mailboxes, paginating, and formatting the list, and nothing
- * here depends on its classes.
- *
- * Thread bodies can't be indexed for this (a `LIKE '%…%'`, and core's tables aren't ours to change), so every
- * search reads the body of every thread it covers, and that's what it costs: about 0.1 ms per email of 20 KB.
- * It's kept to a bounded amount of them:
- *
- * - The module's other parameters (`status`, `tag`, `createdSince`, `customerId`…) pick the conversations
- *   first, from their indexes, and only their threads are read, through the threads' conversation index.
- *   A correlated `EXISTS` would leave that to the optimizer, which rewrites it into a scan of every thread
- *   in the helpdesk when the other filters look weak.
- * - The threads it would read are counted first, from that index, and searches over MAX_THREADS of them, or
- *   over MAX_CONVERSATIONS conversations, are refused: the answer asks for narrower filters.
- * - The matches go back to the module's query as IDs, so its count and its page don't search again.
- *
- * Refusals and failures answer an error rather than an empty list: an empty list would read as "no
- * conversation says that", and the review tools act on that answer. Only requests with `body` are affected.
+ * Thread bodies can't be indexed, so the module's other parameters pick the conversations first, and searches over
+ * MAX_CONVERSATIONS or MAX_THREADS are refused.
  */
 final class ConversationTextSearch {
 
@@ -50,21 +28,21 @@ final class ConversationTextSearch {
 	public const PARAMETER = 'body';
 
 	/**
-	 * The parameter narrowing which threads are read by their type.
+	 * Thread types to read: `customer`, `message`, `note`, comma-separated; all of them by default.
 	 *
 	 * @var string
 	 */
 	public const THREAD_TYPE_PARAMETER = 'bodyThreadType';
 
 	/**
-	 * The parameter reading only the threads created since a date.
+	 * Only threads created since this date.
 	 *
 	 * @var string
 	 */
 	public const SINCE_PARAMETER = 'bodySince';
 
 	/**
-	 * The parameter reading only the threads created before a date.
+	 * Only threads created before this date.
 	 *
 	 * @var string
 	 */
@@ -78,22 +56,14 @@ final class ConversationTextSearch {
 	public const MIN_LENGTH = 3;
 
 	/**
-	 * The most threads one search reads, what a search costs: about 1.5 seconds when they're the plugins team's
-	 * review emails, of 20 KB on average. Finding a plugin's review among the active ones reads about 2,000 of
-	 * them; every review email of 6 months is about 100,000, at 1,200 new reviews a week.
-	 *
-	 * Can be changed with the `wporgsite.conversation_text_search.max_threads` filter.
+	 * The most threads one search reads, about 1.5 seconds of review emails.
 	 *
 	 * @var int
 	 */
 	public const MAX_THREADS = 15000;
 
 	/**
-	 * The most conversations whose threads one search counts. Only their IDs and their threads' index are read,
-	 * about 0.1 seconds for 30,000, but it keeps a search with no other filter from listing the whole helpdesk
-	 * before refusing it. 3 months of approved reviews are about 10,000 conversations.
-	 *
-	 * Can be changed with the `wporgsite.conversation_text_search.max_conversations` filter.
+	 * The most conversations one search covers, so one without other filters is refused before listing them all.
 	 *
 	 * @var int
 	 */
@@ -209,7 +179,7 @@ final class ConversationTextSearch {
 	 * @param string $parameter Name of the parameter, for the error.
 	 * @param mixed  $value     Value of the parameter.
 	 * @return string|null
-	 * @throws \InvalidArgumentException If the value isn't a string; caught, so it's refused like any other value that isn't a date.
+	 * @throws \InvalidArgumentException Caught, for a value that isn't a string.
 	 */
 	private static function date( string $parameter, mixed $value ): ?string {
 		if ( null === $value || '' === $value ) {
@@ -237,7 +207,7 @@ final class ConversationTextSearch {
 	private static function candidate_ids( mixed $query, int $max ): array {
 		$candidates = ( clone $query )->getQuery();
 
-		// Only the IDs: without the module's columns, order, and page.
+		// Without the module's columns, order, and page.
 		$candidates->columns = null;
 		$candidates->orders  = null;
 		$candidates->offset  = null;
@@ -249,9 +219,7 @@ final class ConversationTextSearch {
 	}
 
 	/**
-	 * The threads of the candidates a search would read, counted from the threads' indexes.
-	 *
-	 * Drafts are counted too: the state isn't in those indexes, and they're few.
+	 * The threads of the candidates a search would read, drafts included, as their state isn't indexed.
 	 *
 	 * @param mixed $query      Query for the conversations, for its connection.
 	 * @param int[] $candidates Conversation IDs.
@@ -319,7 +287,7 @@ final class ConversationTextSearch {
 	}
 
 	/**
-	 * Answers the request with an error, which the module's API turns into JSON.
+	 * Answers with an error, as an empty list would read as no match.
 	 *
 	 * @param int    $status  HTTP status.
 	 * @param string $message Why.

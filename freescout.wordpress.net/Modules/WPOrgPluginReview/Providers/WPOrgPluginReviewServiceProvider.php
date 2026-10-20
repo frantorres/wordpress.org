@@ -178,7 +178,6 @@ final class WPOrgPluginReviewServiceProvider extends ServiceProvider {
 			self::PANEL_PRIORITY
 		);
 
-		// The API & Webhooks module's conversation list, by the plugin of their review emails.
 		\Eventy::addFilter( 'api.conversations.query', array( PluginConversations::class, 'filter' ), 20, 2 );
 
 		self::register_subject_hooks();
