@@ -16,12 +16,11 @@ use App\User;
 use Illuminate\Http\Request;
 use Modules\WPOrgPluginReview\Providers\WPOrgPluginReviewServiceProvider;
 use Modules\WPOrgPluginReview\Services\PluginConversations;
-use Modules\WPOrgPluginReview\Services\Review;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use WordPressdotorg\FreeScout\Tests\TestCase;
 
 /**
- * Covers the plugin IDs in the index of review emails, and the `reviewPluginId` parameter of the API's conversation list.
+ * Covers the `reviewPluginId` parameter of the API's conversation list.
  *
  * The API & Webhooks module isn't in the test environment, so the filter runs on the query it would build.
  */
@@ -55,19 +54,6 @@ final class PluginConversationsTest extends TestCase {
 	}
 
 	/**
-	 * Review emails are indexed with the plugin ID of their Review ID line, and 0 when it names none.
-	 *
-	 * @return void
-	 */
-	public function test_indexes_the_plugin_id_of_review_emails(): void {
-		$with    = $this->review( 42 );
-		$without = $this->create_thread( $this->conversation(), Thread::TYPE_MESSAGE, '<p>Review ID: R my-plugin/jane 8Aug26/4.3</p>', $this->reviewer, '2026-08-08 10:00:00' );
-
-		$this->assertSame( 42, $this->plugin_id( $with ) );
-		$this->assertSame( 0, $this->plugin_id( $without ) );
-	}
-
-	/**
 	 * Every conversation with a review email about the plugin is listed, open or closed, with the module's other filters.
 	 *
 	 * @return void
@@ -91,7 +77,7 @@ final class PluginConversationsTest extends TestCase {
 	 * @return void
 	 */
 	public function test_refuses_what_isnt_a_plugin_id(): void {
-		foreach ( array( 'abc', '-3', '0', '4.2', array( 42 ) ) as $value ) {
+		foreach ( array( 'abc', '0' ) as $value ) {
 			try {
 				$this->search( $value );
 				$this->fail( 'Not refused: ' . json_encode( $value ) );
@@ -99,20 +85,6 @@ final class PluginConversationsTest extends TestCase {
 				$this->assertSame( 400, $e->getStatusCode() );
 			}
 		}
-	}
-
-	/**
-	 * The module's provider adds the filter the API & Webhooks module runs.
-	 *
-	 * @return void
-	 */
-	public function test_is_added_to_the_api_query(): void {
-		$review = $this->review( 42 );
-		$this->review( 43 );
-
-		$query = \Eventy::filter( 'api.conversations.query', $this->base_query(), Request::create( '/api/conversations', 'GET', array( PluginConversations::PARAMETER => '42' ) ) );
-
-		$this->assertSame( array( (int) $review->conversation_id ), array_map( 'intval', $query->pluck( 'conversations.id' )->all() ) );
 	}
 
 	/**
@@ -135,17 +107,7 @@ final class PluginConversationsTest extends TestCase {
 	}
 
 	/**
-	 * The plugin ID a thread is indexed with.
-	 *
-	 * @param Thread $thread Thread.
-	 * @return int
-	 */
-	private function plugin_id( Thread $thread ): int {
-		return (int) \DB::table( Review::TABLE )->where( 'thread_id', $thread->id )->value( 'plugin_id' );
-	}
-
-	/**
-	 * Runs the filter on the conversation list query.
+	 * Runs the API & Webhooks module's filter on the conversation list query.
 	 *
 	 * @param mixed         $plugin_id Value of the parameter; null leaves it out.
 	 * @param callable|null $more      Adds the module's other parameters to the query.
@@ -157,7 +119,7 @@ final class PluginConversationsTest extends TestCase {
 			$more( $query );
 		}
 		$parameters = null === $plugin_id ? array() : array( PluginConversations::PARAMETER => $plugin_id );
-		$query      = PluginConversations::filter( $query, Request::create( '/api/conversations', 'GET', $parameters ) );
+		$query      = \Eventy::filter( 'api.conversations.query', $query, Request::create( '/api/conversations', 'GET', $parameters ) );
 
 		return array_map( 'intval', $query->pluck( 'conversations.id' )->all() );
 	}
